@@ -11,14 +11,14 @@ int main()
 {
     int fd;
     long long sz;
-
+    char *temp;
     char buf[1];
     char write_buf[] = "testing writing";
     int offset = 100;  // TODO: test something bigger than the limit
     int i = 0;
-
+    FILE *fp;
     fd = open(FIB_DEV, O_RDWR);
-
+    fp = fopen("fib.txt", "w+");
     if (fd < 0) {
         perror("Failed to open character device");
         exit(1);
@@ -32,9 +32,10 @@ int main()
     for (i = 0; i <= offset; i++) {
         lseek(fd, i, SEEK_SET);
         sz = read(fd, buf, 1);
+        fprintf(fp, "%lld\n", sz);
         printf("Reading from " FIB_DEV
                " at offset %d, returned the sequence "
-               "%lld.\n",
+               "%lldd.\n",
                i, sz);
     }
 
@@ -48,5 +49,6 @@ int main()
     }
 
     close(fd);
+    fclose(fp);
     return 0;
 }
