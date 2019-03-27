@@ -4,8 +4,10 @@
 #include <linux/init.h>
 #include <linux/kdev_t.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/types.h>
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -18,14 +20,27 @@ MODULE_VERSION("0.1");
  * ssize_t can't fit the number > 92
  */
 #define MAX_LENGTH 92
-
+#define USE_BOOST true
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
 static struct class *fib_class;
 static DEFINE_MUTEX(fib_mutex);
 
+static void matrix_mut(long long m[2][2], long long n[2][2])
+{
+    long long m00 = m[0][0] * n[0][0] + m[0][1] * n[1][0];
+    long long m01 = m[0][0] * n[0][1] + m[0][1] * n[1][1];
+    long long m10 = m[1][0] * n[0][0] + m[1][1] * n[1][0];
+    long long m11 = m[1][0] * n[0][1] + m[1][1] * n[1][1];
+    m[0][0] = m00;
+    m[0][1] = m01;
+    m[1][0] = m10;
+    m[1][1] = m11;
+    return;
+}
 static long long fib_sequence(long long k)
 {
+    ktime_t ktime = ktime_get();
     /* FIXME: use clz/ctz and fast algorithms to speed up */
     long long f[k + 2];
 
@@ -35,8 +50,44 @@ static long long fib_sequence(long long k)
     for (int i = 2; i <= k; i++) {
         f[i] = f[i - 1] + f[i - 2];
     }
-
+    ktime = ktime_sub(ktime_get(), ktime);
+    long long s = (long long) ktime_to_ns(ktime);
+    printk("k = %lld using %lld ns\n", k, s);
     return f[k];
+}
+static long long fib_sequence_boost(long long k)
+{
+    long long t = k;
+    ktime_t ktime = ktime_get();
+    /* FIXME: use clz/ctz and fast algorithms to speed up */
+    if (k == 0)
+        return 0;
+    long long f[2][2] = {{1, 1}, {1, 0}};
+    long long base_f[2][2] = {{1, 1}, {1, 0}};
+    int stack[100];
+    int stack_ptr = -1;
+    while (k > 1) {
+        if (k % 2 == 1) {
+            k = k - 1;
+            stack_ptr++;
+            stack[stack_ptr] = 0;
+        } else {
+            k = k / 2;
+            stack_ptr++;
+            stack[stack_ptr] = 1;
+        }
+    }
+    for (int i = stack_ptr; i >= 0; i--) {
+        if (stack[i] == 0) {
+            matrix_mut(f, base_f);
+        } else {
+            matrix_mut(f, f);
+        }
+    }
+    ktime = ktime_sub(ktime_get(), ktime);
+    long long s = (long long) ktime_to_ns(ktime);
+    printk("k = %lld using %lld ns\n", t, s);
+    return f[0][1];
 }
 
 static int fib_open(struct inode *inode, struct file *file)
@@ -60,7 +111,7 @@ static ssize_t fib_read(struct file *file,
                         size_t size,
                         loff_t *offset)
 {
-    return (ssize_t) fib_sequence(*offset);
+    return (USE_BOOST) ? fib_sequence_boost(*offset) : fib_sequence(*offset);
 }
 
 /* write operation is skipped */
